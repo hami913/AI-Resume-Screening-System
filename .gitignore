@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+
+# macOS
+.DS_Store
+
+# Test files / personal resume
+test_resume.pdf
+test_resume.txt
+
+# Large model files
+models/gguf/
+models/final_adapter/
+
+# Model binaries / large artifacts
+*.gguf
+*.safetensors
+*.bin
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Backups
+*_backup_*.py
+*_before_*.py
