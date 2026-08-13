@@ -31,3 +31,6 @@ models/final_adapter/
 # Backups
 *_backup_*.py
 *_before_*.py
+
+# Logs
+*.log
