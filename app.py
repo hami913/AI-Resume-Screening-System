@@ -888,6 +888,50 @@ with col_left:
         st.divider()
 
         # ============================================================
+        # RESUME QUALITY / STRUCTURAL METRICS
+        # ============================================================
+        with st.container(border=True):
+            st.markdown(
+                section_tag("📋 RESUME QUALITY"),
+                unsafe_allow_html=True,
+            )
+            st.header("Resume Structural & Text Metrics")
+
+            features = result.get("features", {})
+
+            word_count = features.get("word_count", 0)
+            unique_word_count = features.get("unique_word_count", 0)
+            email_present = bool(features.get("email_present"))
+            phone_present = bool(features.get("phone_present"))
+
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+
+            with metric_col1:
+                st.metric("Total Word Count", f"{word_count:,}")
+
+            with metric_col2:
+                st.metric("Unique Words Detected", f"{unique_word_count:,}")
+
+            with metric_col3:
+                st.metric("Technical Skills Detected", len(skills))
+
+            contact_col1, contact_col2 = st.columns(2)
+
+            with contact_col1:
+                st.metric(
+                    "Email Contact Present",
+                    "Yes" if email_present else "No",
+                )
+
+            with contact_col2:
+                st.metric(
+                    "Phone Contact Present",
+                    "Yes" if phone_present else "No",
+                )
+
+        st.divider()
+
+        # ============================================================
         # PDF REPORT DOWNLOAD SECTION
         # ============================================================
         with st.container(border=True):
@@ -902,12 +946,16 @@ with col_left:
                 confidence_val = f"{top_score * 100:.1f}% Match" if top_score <= 1.0 else f"{top_score:.2f} Match"
 
             ats_data = result.get("ats_score", {})
+            # Structural/text metrics are returned inside result["features"]
+            # by resume_analyzer_intelligent_matching_working.py.
+            features = result.get("features", {})
+
             feat_dict = {
-                "word_count": result.get("word_count", 0),
-                "unique_word_count": result.get("unique_word_count", 0),
+                "word_count": features.get("word_count", 0),
+                "unique_word_count": features.get("unique_word_count", 0),
                 "skill_count": len(skills),
-                "email_present": 1 if result.get("email_present") else 0,
-                "phone_present": 1 if result.get("phone_present") else 0,
+                "email_present": 1 if features.get("email_present") else 0,
+                "phone_present": 1 if features.get("phone_present") else 0,
             }
 
             # Optional logo path parameter if your app directory contains an app logo PNG/JPG
