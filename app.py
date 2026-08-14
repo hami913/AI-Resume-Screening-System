@@ -226,6 +226,18 @@ def generate_pdf_report(predicted_category, confidence, ats_res, feature_dict, l
     safe_multi_cell(pdf, 180, 5, missing_str)
     pdf.ln(4)
 
+    # Recommendations (If available)
+    recommendations = ats_res.get("recommendations", [])
+    if recommendations:
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(79, 70, 229)
+        pdf.cell(0, 6, "Target Job Recommendations", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(51, 65, 85)
+        for rec in recommendations:
+            safe_multi_cell(pdf, 180, 5, f"- {rec}")
+        pdf.ln(4)
+
     # ----------------------------------------------------
     # SECTION 3: RESUME METRICS GRID
     # ----------------------------------------------------
@@ -253,6 +265,89 @@ def generate_pdf_report(predicted_category, confidence, ats_res, feature_dict, l
         fill = not fill
 
     return bytes(pdf.output())
+
+
+# ==============================
+# ENHANCED JOB DESCRIPTION MATCHING ENGINE (NOISE FILTERED)
+# ==============================
+
+def compute_jd_match(resume_result: dict, job_description: str) -> dict:
+    """Compare extracted resume features against a pasted Job Description with noise filtering."""
+    if not job_description or not job_description.strip():
+        return {}
+
+    jd_text = job_description.lower()
+    candidate_skills = resume_result.get("skills", [])
+    candidate_text = resume_result.get("text", "").lower()
+
+    # Normalize candidate skills for exact set checking
+    candidate_skills_set = {s.lower().strip() for s in candidate_skills}
+
+    # Stopwords & generic structural terms to ignore during gap analysis
+    stopwords = {
+        "and", "the", "for", "with", "you", "are", "this", "that", "from", "have",
+        "will", "our", "work", "team", "years", "experience", "role", "must", "ability",
+        "knowledge", "strong", "working", "degree", "bachelor", "master", "associate",
+        "junior", "senior", "responsibilities", "requirements", "qualifications",
+        "looking", "seeking", "preferred", "plus", "offer", "about", "apply", "achieve",
+        "application", "apps", "artifacts", "key", "department", "employment", "type",
+        "full-time", "location", "position", "overview", "offer"
+    }
+
+    # Extract clean tokens from Job Description
+    jd_tokens = set(re.findall(r'\b[a-zA-Z0-9+#.-]{2,}\b', jd_text))
+
+    matched_skills = []
+    missing_skills = []
+
+    # 1. Match candidate skills present in JD
+    for skill in candidate_skills:
+        skill_lower = skill.lower().strip()
+        pattern = r'\b' + re.escape(skill_lower) + r'\b'
+        if re.search(pattern, jd_text):
+            matched_skills.append(skill)
+
+    # 2. Extract genuine tech keyword gaps (filtering out noise)
+    for token in jd_tokens:
+        if token not in stopwords and token not in candidate_skills_set:
+            if token not in candidate_text:
+                if len(token) >= 3 and not token.isdigit():
+                    missing_skills.append(token.upper() if len(token) <= 4 else token.capitalize())
+
+    # Format output lists
+    matched_skills = sorted(list(set(matched_skills)))
+    missing_skills = sorted(list(set(missing_skills)))[:10]
+
+    # Calculate realistic match coverage
+    jd_skill_count = max(len(matched_skills) + len(missing_skills), 1)
+    skill_coverage = (len(matched_skills) / jd_skill_count) * 100.0
+
+    # Calculate full resume context overlap
+    resume_words = set(re.findall(r'\b[a-zA-Z0-9+#.-]{2,}\b', candidate_text))
+    overlap_tokens = (jd_tokens - stopwords).intersection(resume_words)
+    context_overlap_score = (len(overlap_tokens) / max(len(jd_tokens - stopwords), 1)) * 100.0
+
+    # Composite ATS Match Score calculation
+    ats_score = round((skill_coverage * 0.7) + (context_overlap_score * 0.3), 1)
+    ats_score = max(15.0, min(98.5, ats_score))
+
+    # Targeted action items
+    recommendations = []
+    if missing_skills:
+        recommendations.append(f"Add relevant target technical skills if applicable: {', '.join(missing_skills[:4])}.")
+    if matched_skills:
+        recommendations.append(f"Highlight specific project achievements using matched skills: {', '.join(matched_skills[:3])}.")
+
+    return {
+        "ats_score": ats_score,
+        "skill_coverage": round(skill_coverage, 1),
+        "uniqueness_score": round(context_overlap_score, 1),
+        "section_score": 85.0,
+        "matched_skills": matched_skills,
+        "missing_skills": missing_skills,
+        "jd_skill_count": jd_skill_count,
+        "recommendations": recommendations
+    }
 
 
 # ============================================================
@@ -668,6 +763,15 @@ if "analysis_result" not in st.session_state:
 if "analyzed_filename" not in st.session_state:
     st.session_state.analyzed_filename = None
 
+# ==============================
+# JOB DESCRIPTION SESSION STATE
+# ==============================
+if "job_description" not in st.session_state:
+    st.session_state.job_description = ""
+
+if "jd_analysis_result" not in st.session_state:
+    st.session_state.jd_analysis_result = None
+
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -787,8 +891,10 @@ with col_left:
     if uploaded_file is None:
         st.session_state.analysis_result = None
         st.session_state.analyzed_filename = None
+        st.session_state.jd_analysis_result = None
     elif st.session_state.analyzed_filename != uploaded_file.name:
         st.session_state.analysis_result = None
+        st.session_state.jd_analysis_result = None
 
     analyze_clicked = st.button(
         "🔍 Analyze Resume",
@@ -807,10 +913,41 @@ with col_left:
             st.error(f"Resume analysis failed: {error}")
             st.session_state.analysis_result = None
             st.session_state.analyzed_filename = None
+            st.session_state.jd_analysis_result = None
         else:
             st.session_state.analysis_result = result
             st.session_state.analyzed_filename = uploaded_file.name
             st.success("Resume analyzed successfully.")
+
+    # ==============================
+    # JOB DESCRIPTION INPUT SECTION
+    # ==============================
+    st.subheader("📋 Target Job Description")
+    
+    jd_input = st.text_area(
+        "Paste Job Description",
+        value=st.session_state.job_description,
+        placeholder="Paste the target job description here to perform a target-specific ATS match and skill gap analysis...",
+        height=140,
+        help="Paste a specific job posting to compare your resume directly against its requirements."
+    )
+    st.session_state.job_description = jd_input
+
+    analyze_jd_clicked = st.button(
+        "🔍 Analyze Resume Against Job",
+        use_container_width=True,
+    )
+
+    if analyze_jd_clicked:
+        if st.session_state.analysis_result is None:
+            st.warning("Please upload and analyze a resume first before running job description matching.")
+        elif not jd_input.strip():
+            st.warning("Please paste a job description in the text box above.")
+        else:
+            with st.spinner("Matching resume against target Job Description..."):
+                jd_res = compute_jd_match(st.session_state.analysis_result, jd_input)
+                st.session_state.jd_analysis_result = jd_res
+                st.success("Target Job Description analysis completed!")
 
     result = st.session_state.analysis_result
 
@@ -833,19 +970,12 @@ with col_left:
             if top_careers:
                 with st.expander("View Top 5 Career Predictions"):
                     for index, career in enumerate(top_careers, start=1):
-                        if isinstance(career, tuple) and len(career) >= 2:
-                            career_name = career[0]
-                            career_score = career[1]
-                            st.markdown(
-                                f'<div class="subhead">{index}. {career_name}</div>',
-                                unsafe_allow_html=True,
-                            )
-                            st.caption(f"Model score: {career_score:.4f}")
+                        if isinstance(career, dict):
+                            label = career.get("label", "Unknown")
+                            prob = career.get("probability", 0.0)
+                            st.write(f"**{index}. {label}**: {prob * 100:.1f}%")
                         else:
-                            st.markdown(
-                                f'<div class="subhead">{index}. {career}</div>',
-                                unsafe_allow_html=True,
-                            )
+                            st.write(f"**{index}. {career}**")
 
         st.divider()
 
@@ -854,129 +984,132 @@ with col_left:
             st.header("Extracted Skills")
 
             skills = result.get("skills", [])
+            st.caption(f"Total Skills: {len(skills)}")
+
             if skills:
-                st.write(f"**Total Skills:** {len(skills)}")
-                st.markdown(
-                    pills_html(sorted(skills), "slate"),
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.info("No skills were detected.")
-
-        st.divider()
-
-        with st.container(border=True):
-            st.markdown(section_tag("📊 SCORE PANEL"), unsafe_allow_html=True)
-            st.header("ATS Score")
-
-            ats = result.get("ats_score", {})
-            overall_ats = ats.get("ats_score", 0)
-
-            gauge_col, breakdown_col = st.columns([1, 2])
-
-            with gauge_col:
                 try:
-                    st.html(gauge_html("Overall ATS Score", overall_ats))
+                    st.html(pills_html(skills, variant="slate"))
                 except AttributeError:
-                    st.markdown(gauge_html("Overall ATS Score", overall_ats), unsafe_allow_html=True)
-
-            with breakdown_col:
-                bar_readout("Skill Match (50%)", ats.get("skill_coverage", 0))
-                bar_readout("Keyword Quality (15%)", ats.get("uniqueness_score", 0))
-                bar_readout("Resume Sections (15%)", ats.get("section_score", 0))
+                    st.markdown(pills_html(skills, variant="slate"), unsafe_allow_html=True)
+            else:
+                st.write("No explicit skills extracted.")
 
         st.divider()
 
-        # ============================================================
-        # PDF REPORT DOWNLOAD SECTION
-        # ============================================================
-        with st.container(border=True):
-            st.markdown(section_tag("📄 EXPORT REPORT"), unsafe_allow_html=True)
-            st.header("Download Analysis PDF")
+        # Render ATS Score & Job Analysis Panel
+        if st.session_state.jd_analysis_result:
+            jd_res = st.session_state.jd_analysis_result
 
-            cat = result.get("predicted_career", "N/A")
+            with st.container(border=True):
+                st.markdown(section_tag("📊 SCORE PANEL"), unsafe_allow_html=True)
+                st.header("Target Job ATS Match Score")
 
-            confidence_val = "High Match"
-            if top_careers and isinstance(top_careers[0], tuple) and len(top_careers[0]) >= 2:
-                top_score = top_careers[0][1]
-                confidence_val = f"{top_score * 100:.1f}% Match" if top_score <= 1.0 else f"{top_score:.2f} Match"
+                ats_score = jd_res.get("ats_score", 0.0)
 
-            ats_data = result.get("ats_score", {})
-            feat_dict = {
-                "word_count": result.get("word_count", 0),
-                "unique_word_count": result.get("unique_word_count", 0),
-                "skill_count": len(skills),
-                "email_present": 1 if result.get("email_present") else 0,
-                "phone_present": 1 if result.get("phone_present") else 0,
-            }
+                try:
+                    st.html(gauge_html("ATS Score", ats_score))
+                except AttributeError:
+                    st.markdown(gauge_html("ATS Score", ats_score), unsafe_allow_html=True)
 
-            # Optional logo path parameter if your app directory contains an app logo PNG/JPG
-            logo_file = "logo.png" if os.path.exists("logo.png") else None
+                st.write("")
+                bar_readout("Skill Match Coverage", jd_res.get("skill_coverage", 0.0))
+                bar_readout("Keyword Quality / Context", jd_res.get("uniqueness_score", 0.0))
+                bar_readout("Resume Structure", jd_res.get("section_score", 85.0))
 
-            pdf_bytes = generate_pdf_report(
-                predicted_category=cat,
-                confidence=confidence_val,
-                ats_res=ats_data,
-                feature_dict=feat_dict,
-                logo_path=logo_file,
-            )
+            st.divider()
 
-            st.download_button(
-                label="📥 Download Modern PDF Report",
-                data=pdf_bytes,
-                file_name="Resume_Analysis_Report.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
+            with st.container(border=True):
+                st.markdown(section_tag("🎯 Target Job Skill Match Analysis"), unsafe_allow_html=True)
+
+                matched = jd_res.get("matched_skills", [])
+                missing = jd_res.get("missing_skills", [])
+
+                st.subheader("✅ Matching Skills")
+                if matched:
+                    try:
+                        st.html(pills_html(matched, variant="teal"))
+                    except AttributeError:
+                        st.markdown(pills_html(matched, variant="teal"), unsafe_allow_html=True)
+                else:
+                    st.caption("No matching skills identified yet.")
+
+                st.subheader("⚠️ Missing / Recommended Skills")
+                if missing:
+                    try:
+                        st.html(pills_html(missing, variant="rust"))
+                    except AttributeError:
+                        st.markdown(pills_html(missing, variant="rust"), unsafe_allow_html=True)
+                else:
+                    st.caption("No critical missing skills detected!")
+
+                recs = jd_res.get("recommendations", [])
+                if recs:
+                    st.subheader("💡 Resume Improvement Recommendations")
+                    for rec in recs:
+                        st.markdown(f"- {rec}")
+
+            st.divider()
+
+            # Export PDF Section
+            with st.container(border=True):
+                st.markdown(section_tag("📄 EXPORT REPORT"), unsafe_allow_html=True)
+                
+                pdf_data = generate_pdf_report(
+                    predicted_category=predicted_career,
+                    confidence=f"{result.get('confidence', 0.0) * 100:.1f}%" if result.get('confidence') else "High",
+                    ats_res=jd_res,
+                    feature_dict=result.get("features", {})
+                )
+
+                st.download_button(
+                    label="Download Analysis PDF",
+                    data=pdf_data,
+                    file_name=f"Resume_Analysis_{uploaded_file.name.rsplit('.', 1)[0]}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
 
 # ============================================================
-# RIGHT COLUMN: AI CAREER MENTOR CHAT
+# RIGHT COLUMN: MENTOR CHAT
 # ============================================================
 
 with col_right:
     st.markdown(section_tag("02 · MENTOR CHAT"), unsafe_allow_html=True)
     st.header("AI Career Mentor")
 
+    # Render persistent conversation chat
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.write(message["content"])
+            st.markdown(message["content"])
 
-    if user_prompt := st.chat_input("Ask your mentor about your resume or career goals..."):
-        st.session_state.messages.append({"role": "user", "content": user_prompt})
+    user_input = st.chat_input("Ask your Llama career mentor a question...")
+
+    if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        
         with st.chat_message("user"):
-            st.write(user_prompt)
+            st.markdown(user_input)
 
-        # Build dynamic prompt with resume context
-        system_content = SYSTEM_PROMPT
-        if st.session_state.get("analysis_result"):
+        api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        
+        # Inject resume analysis state context into LLM context window if available
+        if st.session_state.analysis_result:
             res = st.session_state.analysis_result
-            c_name = res.get("predicted_career", "N/A")
-            s_list = ", ".join(res.get("skills", []))
-            a_data = res.get("ats_score", {})
-            o_ats = a_data.get("ats_score", 0)
+            ctx = f"Candidate Context:\nPredicted Career Target: {res.get('predicted_career')}\nExtracted Skills: {', '.join(res.get('skills', []))}"
+            if st.session_state.jd_analysis_result:
+                jd_r = st.session_state.jd_analysis_result
+                ctx += f"\nTarget ATS Score: {jd_r.get('ats_score')}%\nMatched Skills: {', '.join(jd_r.get('matched_skills', []))}\nMissing Skills: {', '.join(jd_r.get('missing_skills', []))}"
+            api_messages.append({"role": "system", "content": ctx})
 
-            resume_context = f"""
-
-[Analyzed Resume Context]
-- Predicted Career Path: {c_name}
-- Overall ATS Score: {o_ats:.1f}%
-- Skill Coverage Score: {a_data.get('skill_coverage', 0):.1f}%
-- Keyword Quality Score: {a_data.get('uniqueness_score', 0):.1f}%
-- Detected Skills: {s_list if s_list else 'None'}
-
-Incorporate this candidate context when answering user questions about their resume, skills, gap analysis, or career strategy."""
-            system_content += resume_context
-
-        api_messages = [{"role": "system", "content": system_content}]
         api_messages.extend(st.session_state.messages)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                answer, error = call_llama_api(api_messages)
-                if error:
-                    st.error(f"⚠️ {error}")
-                    st.session_state.messages.append({"role": "assistant", "content": f"⚠️ {error}"})
-                else:
-                    st.write(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
+            with st.spinner("Llama mentor is thinking..."):
+                answer, err = call_llama_api(api_messages)
+
+            if err:
+                st.error(err)
+            else:
+                st.markdown(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})

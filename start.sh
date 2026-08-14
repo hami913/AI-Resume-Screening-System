@@ -1,7 +1,7 @@
 #!/bin/bash
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LLAMA_SERVER="${LLAMA_SERVER:-llama-server}"
+LLAMA_SERVER="${LLAMA_SERVER:-/Users/abrar/llama.cpp/build/bin/llama-server}"
 
 MODEL="$PROJECT_DIR/models/gguf/llama-3.1-8b-instruct-q4_k_m.gguf"
 LORA="$PROJECT_DIR/models/gguf/llama-3.1-8b-career-assistant-lora-f16.gguf"
