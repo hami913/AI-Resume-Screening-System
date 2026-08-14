@@ -14,3 +14,4 @@ python-multipart
 python-dotenv
 requests
 nltk
+fpdf2
