@@ -14,3 +14,7 @@ python-multipart
 python-dotenv
 requests
 nltk
+fpdf2==2.8.8
+requests
+joblib
+nltk
