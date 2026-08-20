@@ -1,5 +1,6 @@
 
 import os
+import ast
 import pandas as pd
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -30,6 +31,21 @@ def load_jobs():
         JOB_DATA_PATH
     )
 
+
+
+def parse_job_skills(value):
+    try:
+        skills = ast.literal_eval(str(value))
+        if isinstance(skills, list):
+            return [str(skill).strip() for skill in skills if str(skill).strip()]
+    except (ValueError, SyntaxError):
+        pass
+    return []
+
+
+def find_matched_skills(resume_text, job_skills):
+    resume_lower = str(resume_text).lower()
+    return [skill for skill in job_skills if skill.lower() in resume_lower]
 
 
 def prepare_job_text(row):
@@ -70,6 +86,13 @@ def recommend_jobs(
 
     filtered_jobs = filtered_jobs.copy()
 
+    filtered_jobs["parsed_skills"] = filtered_jobs["job_skill_set"].apply(
+        parse_job_skills
+    )
+
+    filtered_jobs["matched_skills"] = filtered_jobs["parsed_skills"].apply(
+        lambda skills: find_matched_skills(resume_text, skills)
+    )
 
 
     filtered_jobs["combined_text"] = (
@@ -114,6 +137,7 @@ def recommend_jobs(
             "job_id",
             "category",
             "job_title",
-            "similarity_score"
+            "similarity_score",
+            "matched_skills"
         ]
     ]

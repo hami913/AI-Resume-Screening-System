@@ -34,3 +34,9 @@ models/final_adapter/
 
 # Logs
 *.log
+
+# MLflow local run artifacts
+mlruns/
+
+# Development backup scripts
+*_backup.py

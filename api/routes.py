@@ -78,7 +78,7 @@ def ats_match(payload: ATSMatchRequest):
         if isinstance(result, dict):
             return ATSMatchResponse(
                 ats_score=result.get("ats_score", 0.0),
-                matching_skills=result.get("matching_skills", []),
+                matching_skills=result.get("matched_skills", []),
                 missing_skills=result.get("missing_skills", []),
                 feedback=result.get("feedback")
             )
@@ -125,10 +125,14 @@ def recommend_jobs_endpoint(payload: JobRecommendationRequest):
             detail="Job recommendation module is not available in src."
         )
     try:
+        prediction = predict_resume_category(payload.resume_text)
         recommendations = recommend_jobs(
             resume_text=payload.resume_text,
+            resume_category=prediction['predicted_category'],
             top_n=payload.top_n
         )
+        if hasattr(recommendations, 'to_dict'):
+            recommendations = recommendations.to_dict(orient='records')
         return JobRecommendationResponse(
             recommendations=recommendations,
             total_returned=len(recommendations)

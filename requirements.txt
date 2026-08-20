@@ -5,13 +5,12 @@ pydantic
 scikit-learn==1.6.1
 pandas
 numpy
+joblib
+fpdf2==2.8.8
 matplotlib
 seaborn
 shap
+nltk
 pypdf
 python-docx
-python-multipart
-python-dotenv
 requests
-nltk
-fpdf2

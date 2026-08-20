@@ -1,0 +1,27 @@
+.git
+.gitignore
+.DS_Store
+__pycache__
+*.pyc
+*.pyo
+
+venv
+.venv
+
+app_backup*
+app_before_*
+resume_analyzer_backup*
+resume_analyzer_before_*
+
+mlflow.db
+report.pdf
+test_resume.pdf
+test_resume.txt
+
+AI-Resume-Screening-System
+
+*.log
+
+# Large Llama models - handled separately
+models/gguf/
+models/final_adapter/
