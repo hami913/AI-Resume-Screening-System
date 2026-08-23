@@ -14,3 +14,4 @@ nltk
 pypdf
 python-docx
 requests
+plotly
