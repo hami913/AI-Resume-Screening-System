@@ -261,6 +261,7 @@ import streamlit as st
 from fpdf import FPDF
 
 from resume_analyzer import analyze_resume
+from batch_screening import render_batch_resume_screening
 
 
 # ============================================================
@@ -4044,26 +4045,71 @@ def render_dashboard(result: Mapping[str, Any]) -> None:
 def main() -> None:
     st.set_page_config(
         page_title=APP_NAME,
-        page_icon="\U0001f9ed",
+        page_icon="🧭",
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
     init_session_state()
     render_html(CUSTOM_CSS)
     render_sidebar()
     render_header()
-    render_input_workspace()
 
-    result = st.session_state.get("analysis_result")
-    if result is None:
-        st.write("")
-        render_empty_state(
-            "Upload your resume to activate Career Intelligence",
-            "Career prediction, skill architecture, resume structure scoring, target-job ATS maps, the action plan, mentor context, and PDF export will appear here after analysis.",
-            "SYSTEM READY",
+    # ========================================================
+    # MAIN APPLICATION MODES
+    # ========================================================
+
+    single_resume_tab, batch_resume_tab = st.tabs(
+        [
+            "Single Resume Analysis",
+            "Batch Resume Screening",
+        ]
+    )
+
+    # ========================================================
+    # SINGLE RESUME ANALYSIS
+    # ========================================================
+
+    with single_resume_tab:
+
+        render_input_workspace()
+
+        result = st.session_state.get(
+            "analysis_result"
         )
-    else:
-        render_dashboard(result)
+
+        if result is None:
+
+            st.write("")
+
+            render_empty_state(
+                "Upload your resume to activate Career Intelligence",
+                (
+                    "Career prediction, skill architecture, "
+                    "resume structure scoring, target-job ATS maps, "
+                    "the action plan, mentor context, and PDF export "
+                    "will appear here after analysis."
+                ),
+                "SYSTEM READY",
+            )
+
+        else:
+
+            render_dashboard(result)
+
+    # ========================================================
+    # BATCH RESUME SCREENING
+    # ========================================================
+
+    with batch_resume_tab:
+
+        render_batch_resume_screening(
+            analyze_uploaded_resume=analyze_uploaded_resume,
+            compute_jd_match=compute_jd_match,
+            get_predicted_career=get_predicted_career,
+            display_skill=display_skill,
+            max_upload_mb=MAX_UPLOAD_MB,
+        )
 
 
 if __name__ == "__main__":
