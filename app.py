@@ -2493,42 +2493,89 @@ def safe_rerun() -> None:
 
 
 def save_uploaded_file(uploaded_file: Any) -> str:
-    suffix = os.path.splitext(uploaded_file.name)[1].lower()
+    """Save an uploaded resume safely regardless of current file cursor position."""
+    suffix = os.path.splitext(str(uploaded_file.name))[1].lower()
+
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
+    try:
+        payload = uploaded_file.getvalue()
+    except Exception:
+        payload = uploaded_file.getbuffer().tobytes()
+
+    if not payload:
+        raise ValueError("Uploaded resume is empty.")
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-        temp_file.write(uploaded_file.getbuffer())
+        temp_file.write(payload)
+        temp_file.flush()
         return temp_file.name
 
 
 def validate_uploaded_resume(uploaded_file: Any) -> Optional[str]:
     if uploaded_file is None:
         return "Choose a PDF or DOCX resume first."
+
     suffix = os.path.splitext(str(uploaded_file.name))[1].lower()
+
     if suffix not in {".pdf", ".docx"}:
         return "Unsupported file type. Upload a PDF or DOCX resume."
+
     size = getattr(uploaded_file, "size", None)
+
     if size is not None and size > MAX_UPLOAD_MB * 1024 * 1024:
         return f"This file is larger than {MAX_UPLOAD_MB} MB. Upload a smaller resume file."
+
     return None
 
 
 def analyze_uploaded_resume(uploaded_file: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     validation_error = validate_uploaded_resume(uploaded_file)
+
     if validation_error:
         return None, validation_error
 
     temp_path: Optional[str] = None
+
     try:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+
         temp_path = save_uploaded_file(uploaded_file)
+
         result = analyze_resume(temp_path)
+
         if not isinstance(result, Mapping):
-            return None, "The resume analyzer returned an unexpected result. Confirm that resume_analyzer.py returns a dictionary."
+            return None, (
+                "Resume analyzer returned unexpected result type: "
+                f"{type(result).__name__}. Expected dictionary."
+            )
 
         result_dict = dict(result)
-        if not get_resume_text(result_dict).strip() and not get_detected_skills(result_dict):
-            return None, "The file opened, but no readable resume text or skills were extracted. Try an unlocked, text-based PDF or DOCX file."
+
+        extracted_text = get_resume_text(result_dict).strip()
+        detected_skills = get_detected_skills(result_dict)
+
+        if not extracted_text and not detected_skills:
+            returned_keys = ", ".join(str(k) for k in result_dict.keys()) or "none"
+
+            return None, (
+                "No readable resume text or skills were extracted. "
+                "The PDF may be scanned/image-only, locked, corrupt, "
+                "or the extractor returned unexpected fields. "
+                f"Returned keys: {returned_keys[:300]}"
+            )
+
         return result_dict, None
-    except Exception:
-        return None, "We could not analyze this resume. Confirm it is a valid, unlocked PDF or DOCX file and try again."
+
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
     finally:
         if temp_path and os.path.exists(temp_path):
             try:

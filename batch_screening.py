@@ -236,17 +236,33 @@ def render_batch_resume_screening(
                 # Analyze Resume
                 # --------------------------------------------
 
-                resume_result, error = (
-                    analyze_uploaded_resume(
+                try:
+                    try:
+                        uploaded_file.seek(0)
+                    except Exception:
+                        pass
+
+                    resume_result, error = analyze_uploaded_resume(
                         uploaded_file
                     )
-                )
+
+                except Exception as exc:
+
+                    failures.append({
+                        "File": uploaded_file.name,
+                        "Stage": "Resume analysis",
+                        "Error": f"{type(exc).__name__}: {exc}",
+                    })
+
+                    progress.progress(index / total)
+                    continue
 
                 if error or not resume_result:
 
                     failures.append({
                         "File": uploaded_file.name,
-                        "Error": error or "Resume analysis failed",
+                        "Stage": "Resume analysis",
+                        "Error": error or "Resume analysis returned no result",
                     })
 
                     progress.progress(index / total)
@@ -267,7 +283,8 @@ def render_batch_resume_screening(
 
                     failures.append({
                         "File": uploaded_file.name,
-                        "Error": f"ATS matching failed: {exc}",
+                        "Stage": "ATS matching",
+                        "Error": f"{type(exc).__name__}: {exc}",
                     })
 
                     progress.progress(index / total)
@@ -277,6 +294,7 @@ def render_batch_resume_screening(
 
                     failures.append({
                         "File": uploaded_file.name,
+                        "Stage": "ATS matching",
                         "Error": "ATS engine returned no result",
                     })
 
