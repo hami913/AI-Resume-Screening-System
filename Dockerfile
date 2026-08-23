@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
+COPY batch_screening.py .
 COPY resume_analyzer.py .
 COPY models ./models
 
