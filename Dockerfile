@@ -21,6 +21,7 @@ COPY app.py .
 COPY batch_screening.py .
 COPY resume_analyzer.py .
 COPY models ./models
+COPY data ./data
 
 EXPOSE 8501
 
