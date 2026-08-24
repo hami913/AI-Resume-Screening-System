@@ -343,75 +343,442 @@ def normalize_skills(skills):
     }
 
 
+
+# ============================================================
+# CLOSED-SET SAFETY / UNKNOWN CAREER DETECTION
+# ============================================================
+
+CAREER_RESUME_EVIDENCE = {
+    "ADVOCATE": [
+        "advocate", "attorney", "lawyer", "legal counsel",
+        "litigation", "legal drafting", "corporate law",
+        "criminal defense", "intellectual property",
+        "bar council", "high court", "llb", "ll.b",
+    ],
+
+    "ARTS": [
+        "fine arts", "artist", "graphic design",
+        "illustration", "illustrator", "photoshop",
+        "creative design", "typography",
+    ],
+
+    "AUTOMATION TESTING": [
+        "automation testing", "test automation",
+        "selenium", "cypress", "playwright",
+        "testng", "junit",
+    ],
+
+    "BLOCKCHAIN": [
+        "blockchain", "solidity", "ethereum",
+        "smart contract", "web3", "hyperledger",
+    ],
+
+    "BUSINESS ANALYST": [
+        "business analyst", "business analysis",
+        "requirements gathering", "stakeholder management",
+        "process mapping", "user stories",
+    ],
+
+    "CIVIL ENGINEER": [
+        "civil engineer", "civil engineering",
+        "site engineer", "construction",
+        "structural analysis", "quantity surveying",
+        "boq", "surveying", "primavera",
+    ],
+
+    "DATA SCIENCE": [
+        "data scientist", "data science",
+        "machine learning", "deep learning",
+        "artificial intelligence", "tensorflow",
+        "pytorch", "scikit-learn", "pandas",
+        "natural language processing", "nlp",
+    ],
+
+    "DATABASE": [
+        "database administrator", "dba",
+        "database administration", "database design",
+        "sql server", "oracle database",
+        "mysql", "postgresql",
+    ],
+
+    "DEVOPS ENGINEER": [
+        "devops", "docker", "kubernetes",
+        "jenkins", "terraform", "ansible",
+        "ci/cd", "continuous integration",
+    ],
+
+    "DOTNET DEVELOPER": [
+        ".net developer", "dotnet developer",
+        ".net", "asp.net", "c#",
+    ],
+
+    "ETL DEVELOPER": [
+        "etl developer", "etl",
+        "informatica", "talend", "ssis",
+        "data warehousing",
+    ],
+
+    "ELECTRICAL ENGINEERING": [
+        "electrical engineer", "electrical engineering",
+        "plc", "scada", "power systems",
+        "circuit design", "electrical design",
+    ],
+
+    "HR": [
+        "human resources", "hr manager",
+        "hr executive", "recruitment",
+        "recruiter", "talent acquisition",
+        "payroll", "employee relations",
+    ],
+
+    "HADOOP": [
+        "hadoop", "apache spark",
+        "hive", "hbase", "mapreduce",
+    ],
+
+    "HEALTH AND FITNESS": [
+        "personal trainer", "fitness trainer",
+        "fitness training", "nutrition",
+        "strength training", "exercise physiology",
+        "wellness",
+    ],
+
+    "JAVA DEVELOPER": [
+        "java developer", "java",
+        "spring boot", "hibernate",
+    ],
+
+    "MECHANICAL ENGINEER": [
+        "mechanical engineer", "mechanical engineering",
+        "solidworks", "catia", "creo",
+        "ansys", "hvac", "mechanical design",
+    ],
+
+    "NETWORK SECURITY ENGINEER": [
+        "network security", "cybersecurity",
+        "cyber security", "penetration testing",
+        "vulnerability assessment", "firewall",
+        "siem", "wireshark", "splunk",
+    ],
+
+    "OPERATIONS MANAGER": [
+        "operations manager", "operations management",
+        "supply chain", "logistics",
+        "inventory management", "process improvement",
+        "six sigma",
+    ],
+
+    "PMO": [
+        "pmo", "project management office",
+        "project management", "project planning",
+        "project governance", "risk management",
+    ],
+
+    "PYTHON DEVELOPER": [
+        "python developer", "python",
+        "django", "flask", "fastapi",
+    ],
+
+    "SAP DEVELOPER": [
+        "sap developer", "sap",
+        "abap", "sap hana", "s/4hana",
+        "sap fico", "sap mm", "sap sd",
+    ],
+
+    "SALES": [
+        "sales manager", "sales executive",
+        "sales", "business development",
+        "lead generation", "account management",
+        "cold calling",
+    ],
+
+    "TESTING": [
+        "software testing", "manual testing",
+        "quality assurance", "qa engineer",
+        "regression testing", "test cases",
+    ],
+
+    "WEB DESIGNING": [
+        "web designer", "web design",
+        "web designing", "responsive design",
+        "wordpress", "html", "css",
+    ],
+}
+
+
+def evaluate_career_prediction_reliability(
+    text,
+    predicted_career,
+    rankings
+):
+    """
+    Reject weak closed-set predictions.
+
+    LinearSVC must choose one of its trained classes even when
+    the resume belongs to an unseen profession. This function
+    prevents that forced prediction from being presented as fact.
+    """
+
+    normalized_career = normalize_career_name(
+        predicted_career
+    )
+
+    resume_text = " " + re.sub(
+        r"\s+",
+        " ",
+        str(text).lower()
+    ) + " "
+
+    evidence_terms = CAREER_RESUME_EVIDENCE.get(
+        normalized_career,
+        []
+    )
+
+    matched_evidence = []
+
+    for term in evidence_terms:
+
+        term_lower = term.lower().strip()
+
+        if term_lower in resume_text:
+            matched_evidence.append(term)
+
+    # Remove duplicates while preserving order.
+    matched_evidence = list(
+        dict.fromkeys(matched_evidence)
+    )
+
+    evidence_count = len(matched_evidence)
+
+    if rankings:
+        top_score = float(rankings[0][1])
+    else:
+        top_score = 0.0
+
+    if len(rankings) >= 2:
+        second_score = float(rankings[1][1])
+        decision_margin = top_score - second_score
+    else:
+        decision_margin = 0.0
+
+    # Strong direct profession/title evidence.
+    career_title_variants = {
+        "ADVOCATE": [
+            "advocate", "attorney", "lawyer",
+        ],
+        "DATA SCIENCE": [
+            "data scientist", "data science",
+            "machine learning engineer",
+        ],
+        "CIVIL ENGINEER": [
+            "civil engineer", "civil engineering",
+        ],
+        "MECHANICAL ENGINEER": [
+            "mechanical engineer",
+            "mechanical engineering",
+        ],
+        "ELECTRICAL ENGINEERING": [
+            "electrical engineer",
+            "electrical engineering",
+        ],
+        "DEVOPS ENGINEER": [
+            "devops engineer", "devops",
+        ],
+        "BUSINESS ANALYST": [
+            "business analyst",
+        ],
+        "PYTHON DEVELOPER": [
+            "python developer",
+        ],
+        "JAVA DEVELOPER": [
+            "java developer",
+        ],
+        "DOTNET DEVELOPER": [
+            ".net developer", "dotnet developer",
+        ],
+        "NETWORK SECURITY ENGINEER": [
+            "network security engineer",
+            "cybersecurity engineer",
+        ],
+        "OPERATIONS MANAGER": [
+            "operations manager",
+        ],
+        "HR": [
+            "human resources", "hr manager",
+        ],
+        "SALES": [
+            "sales manager", "sales executive",
+        ],
+        "WEB DESIGNING": [
+            "web designer", "web designing",
+        ],
+    }
+
+    direct_title_match = any(
+        term in resume_text
+        for term in career_title_variants.get(
+            normalized_career,
+            []
+        )
+    )
+
+    # --------------------------------------------------------
+    # RELIABILITY RULES
+    # --------------------------------------------------------
+
+    reliable = False
+
+    # Explicit profession title is very strong evidence.
+    if direct_title_match:
+        reliable = True
+
+    # Multiple domain signals plus some model separation.
+    elif evidence_count >= 3:
+        reliable = True
+
+    elif (
+        evidence_count >= 2
+        and decision_margin >= 0.02
+    ):
+        reliable = True
+
+    # One strong domain clue is accepted only when the model
+    # has a clearly stronger decision margin.
+    elif (
+        evidence_count >= 1
+        and decision_margin >= 0.12
+    ):
+        reliable = True
+
+    return {
+        "reliable": reliable,
+        "decision_margin": round(
+            decision_margin,
+            6
+        ),
+        "top_decision_score": round(
+            top_score,
+            6
+        ),
+        "evidence_count": evidence_count,
+        "matched_evidence": matched_evidence,
+        "direct_title_match": direct_title_match,
+    }
+
+
 # =========================
 # Career Prediction
 # =========================
 
 def predict_careers(text, top_n=5):
-    """Predict the most suitable career categories."""
+    """
+    Predict career category with closed-set safety protection.
+
+    If the trained classifier chooses a category but the resume
+    does not contain enough supporting domain evidence, return
+    Other / Unknown instead of forcing a wrong profession.
+    """
 
     features = extract_features(text)
     dataframe = pd.DataFrame([features])
 
-    prediction_id = pipeline.predict(dataframe)[0]
-    prediction = label_encoder.inverse_transform([int(prediction_id)])[0]
+    raw_prediction_id = pipeline.predict(
+        dataframe
+    )[0]
 
-    decision_scores = pipeline.decision_function(dataframe)[0]
+    raw_prediction = label_encoder.inverse_transform(
+        [int(raw_prediction_id)]
+    )[0]
+
+    decision_scores = pipeline.decision_function(
+        dataframe
+    )[0]
+
     class_ids = pipeline.classes_
 
     rankings = sorted(
         [
-            (label_encoder.inverse_transform([int(class_id)])[0], score)
-            for class_id, score in zip(class_ids, decision_scores)
+            (
+                label_encoder.inverse_transform(
+                    [int(class_id)]
+                )[0],
+                float(score),
+            )
+            for class_id, score
+            in zip(class_ids, decision_scores)
         ],
         key=lambda x: x[1],
         reverse=True
     )
 
-    skills = extract_skills(text)
+    reliability = (
+        evaluate_career_prediction_reliability(
+            text,
+            raw_prediction,
+            rankings,
+        )
+    )
 
-    job_matches = match_jobs(skills, prediction, top_n=5)
+    if reliability["reliable"]:
+        prediction = raw_prediction
+        prediction_status = "recognized"
+    else:
+        prediction = "Other / Unknown"
+        prediction_status = "unsupported_or_uncertain"
+
+    # Use broad skills for user-facing/job-matching logic when
+    # available. Do NOT change extract_features(), because the
+    # trained classifier depends on its original feature design.
+    if "extract_resume_skills" in globals():
+        skills = sorted(
+            extract_resume_skills(text)
+        )
+    else:
+        skills = extract_skills(text)
+
+    if prediction == "Other / Unknown":
+        job_matches = []
+    else:
+        job_matches = match_jobs(
+            skills,
+            prediction,
+            top_n=top_n
+        )
 
     ats_score = (
-        calculate_ats_score(text, features, job_matches[0])
+        calculate_ats_score(
+            text,
+            features,
+            job_matches[0]
+        )
         if job_matches
         else None
     )
 
-    skill_gap = analyze_skill_gap(job_matches, skills)
+    skill_gap = analyze_skill_gap(
+        job_matches,
+        skills
+    )
 
     return {
         "predicted_career": prediction,
+
+        # Keep raw model output for debugging/explainability.
+        "raw_predicted_career": raw_prediction,
+
+        "prediction_status": prediction_status,
+        "prediction_reliable": reliability["reliable"],
+        "decision_margin": reliability["decision_margin"],
+        "top_decision_score": reliability["top_decision_score"],
+        "career_evidence_count": reliability["evidence_count"],
+        "career_evidence": reliability["matched_evidence"],
+
         "top_careers": rankings[:top_n],
         "skills": skills,
         "job_matches": job_matches,
         "ats_score": ats_score,
         "skill_gap": skill_gap,
-        "features": features,
     }
-
-
-# =========================
-# Job Matching
-# =========================
-
-JOB_DATA_PATH = "data/all_job_post.csv"
-
-
-def _parse_job_skills(value):
-    """Parse the structured skill list stored in the job dataset."""
-
-    import ast
-
-    try:
-        skills = ast.literal_eval(str(value))
-        if isinstance(skills, list):
-            return normalize_skills(skills)
-    except (ValueError, SyntaxError):
-        pass
-
-    return set()
-
 
 def match_jobs(resume_skills, top_n=5):
     """Match resume skills against jobs in the job dataset."""
@@ -931,62 +1298,411 @@ def normalize_career_name(career):
 
 def extract_resume_skills(text):
     """
-    Extract skills using the same skill vocabulary already
-    used by the resume analyzer.
+    Broad multi-career skill extractor used for job matching.
+
+    NOTE:
+    extract_skills() is intentionally NOT changed because the
+    trained ML classifier was trained with that original feature.
     """
 
-    skill_keywords = [
-        "python",
-        "java",
-        "c++",
-        "javascript",
-        "typescript",
-        "sql",
-        "html",
-        "css",
-        "react",
-        "angular",
-        "node",
-        "django",
-        "flask",
-        "tensorflow",
-        "pytorch",
-        "keras",
-        "scikit-learn",
-        "machine learning",
-        "deep learning",
-        "artificial intelligence",
-        "data science",
-        "data analysis",
-        "nlp",
-        "computer vision",
-        "aws",
-        "azure",
-        "gcp",
-        "docker",
-        "kubernetes",
-        "git",
-        "github",
-        "firebase",
-        "flutter",
-        "dart",
-        "mongodb",
-        "mysql",
-        "postgresql",
-        "power bi",
-        "tableau",
-        "excel",
-        "statistics",
-    ]
+    skill_groups = {
 
-    text_lower = text.lower()
+        # ---------------- LEGAL / ADVOCATE ----------------
+        "litigation": [
+            "litigation",
+            "civil litigation",
+            "corporate litigation",
+            "commercial litigation",
+        ],
+        "legal drafting": [
+            "legal drafting",
+            "drafting legal",
+        ],
+        "corporate law": [
+            "corporate law",
+            "corporate legal",
+        ],
+        "commercial law": ["commercial law"],
+        "criminal law": ["criminal law"],
+        "criminal defense": [
+            "criminal defense",
+            "criminal defence",
+        ],
+        "intellectual property": [
+            "intellectual property",
+            "intellectual property law",
+            "ip law",
+        ],
+        "legal research": ["legal research"],
+        "statutory interpretation": [
+            "statutory interpretation"
+        ],
+        "contract drafting": [
+            "contract drafting",
+            "drafting contracts",
+        ],
+        "contract law": ["contract law"],
+        "court representation": [
+            "court representation",
+            "representing clients before courts",
+            "court appearances",
+        ],
+        "arbitration": ["arbitration"],
+        "mediation": ["mediation"],
+        "regulatory compliance": [
+            "regulatory compliance",
+            "legal compliance",
+        ],
+        "due diligence": ["due diligence"],
+        "legal counsel": ["legal counsel"],
 
-    return {
-        skill
-        for skill in skill_keywords
-        if skill in text_lower
+        # ---------------- DATA / AI ----------------
+        "python": ["python"],
+        "sql": ["sql"],
+        "machine learning": ["machine learning"],
+        "deep learning": ["deep learning"],
+        "artificial intelligence": [
+            "artificial intelligence"
+        ],
+        "data science": ["data science"],
+        "data analysis": [
+            "data analysis",
+            "data analytics",
+        ],
+        "nlp": [
+            "nlp",
+            "natural language processing",
+        ],
+        "computer vision": ["computer vision"],
+        "statistics": [
+            "statistics",
+            "statistical analysis",
+        ],
+        "tensorflow": ["tensorflow"],
+        "pytorch": ["pytorch"],
+        "keras": ["keras"],
+        "scikit-learn": [
+            "scikit-learn",
+            "sklearn",
+        ],
+        "pandas": ["pandas"],
+        "numpy": ["numpy"],
+        "power bi": ["power bi"],
+        "tableau": ["tableau"],
+
+        # ---------------- SOFTWARE ----------------
+        "java": ["java"],
+        "c++": ["c++"],
+        "c#": ["c#"],
+        ".net": [".net", "dotnet"],
+        "javascript": ["javascript"],
+        "typescript": ["typescript"],
+        "html": ["html"],
+        "css": ["css"],
+        "react": ["react"],
+        "angular": ["angular"],
+        "node.js": ["node.js", "nodejs"],
+        "django": ["django"],
+        "flask": ["flask"],
+        "fastapi": ["fastapi"],
+        "spring boot": ["spring boot"],
+        "rest api": [
+            "rest api",
+            "restful api",
+        ],
+
+        # ---------------- TESTING ----------------
+        "automation testing": [
+            "automation testing",
+            "test automation",
+        ],
+        "selenium": ["selenium"],
+        "cypress": ["cypress"],
+        "playwright": ["playwright"],
+        "pytest": ["pytest"],
+        "junit": ["junit"],
+        "testng": ["testng"],
+        "api testing": ["api testing"],
+        "manual testing": ["manual testing"],
+        "software testing": ["software testing"],
+        "quality assurance": ["quality assurance"],
+        "regression testing": ["regression testing"],
+
+        # ---------------- DEVOPS ----------------
+        "aws": ["aws", "amazon web services"],
+        "azure": ["azure"],
+        "gcp": ["gcp", "google cloud"],
+        "docker": ["docker"],
+        "kubernetes": ["kubernetes"],
+        "jenkins": ["jenkins"],
+        "terraform": ["terraform"],
+        "ansible": ["ansible"],
+        "ci/cd": ["ci/cd"],
+        "linux": ["linux"],
+        "git": ["git"],
+        "github": ["github"],
+
+        # ---------------- DATABASE / ETL ----------------
+        "mysql": ["mysql"],
+        "postgresql": ["postgresql", "postgres"],
+        "mongodb": ["mongodb"],
+        "oracle": ["oracle"],
+        "sql server": ["sql server"],
+        "database administration": [
+            "database administration",
+            "database administrator",
+        ],
+        "database design": ["database design"],
+        "data warehousing": [
+            "data warehousing",
+            "data warehouse",
+        ],
+        "etl": ["etl"],
+        "ssis": ["ssis"],
+        "informatica": ["informatica"],
+        "talend": ["talend"],
+
+        # ---------------- HADOOP ----------------
+        "hadoop": ["hadoop"],
+        "spark": ["apache spark", "spark"],
+        "hive": ["hive"],
+        "hbase": ["hbase"],
+        "mapreduce": ["mapreduce"],
+        "kafka": ["kafka"],
+
+        # ---------------- BLOCKCHAIN ----------------
+        "blockchain": ["blockchain"],
+        "solidity": ["solidity"],
+        "ethereum": ["ethereum"],
+        "smart contracts": [
+            "smart contracts",
+            "smart contract",
+        ],
+        "web3": ["web3"],
+        "hyperledger": ["hyperledger"],
+
+        # ---------------- BUSINESS ANALYST ----------------
+        "business analysis": ["business analysis"],
+        "requirements gathering": [
+            "requirements gathering",
+            "requirement gathering",
+        ],
+        "stakeholder management": [
+            "stakeholder management"
+        ],
+        "process mapping": ["process mapping"],
+        "gap analysis": ["gap analysis"],
+        "user stories": ["user stories"],
+        "jira": ["jira"],
+        "confluence": ["confluence"],
+
+        # ---------------- PMO ----------------
+        "project management": ["project management"],
+        "project planning": ["project planning"],
+        "risk management": ["risk management"],
+        "governance": ["governance"],
+        "agile": ["agile"],
+        "scrum": ["scrum"],
+
+        # ---------------- OPERATIONS ----------------
+        "operations management": [
+            "operations management"
+        ],
+        "supply chain": ["supply chain"],
+        "logistics": ["logistics"],
+        "inventory management": [
+            "inventory management"
+        ],
+        "process improvement": ["process improvement"],
+        "six sigma": ["six sigma"],
+        "vendor management": ["vendor management"],
+
+        # ---------------- CIVIL ENGINEERING ----------------
+        "autocad": ["autocad"],
+        "civil 3d": ["civil 3d"],
+        "primavera p6": [
+            "primavera p6",
+            "primavera",
+        ],
+        "staad pro": ["staad pro", "staad.pro"],
+        "etabs": ["etabs"],
+        "structural analysis": [
+            "structural analysis"
+        ],
+        "quantity surveying": [
+            "quantity surveying"
+        ],
+        "boq": [
+            "boq",
+            "bill of quantities",
+        ],
+        "site supervision": ["site supervision"],
+        "construction management": [
+            "construction management"
+        ],
+        "surveying": ["surveying"],
+        "cost estimation": [
+            "cost estimation",
+            "project estimation",
+        ],
+
+        # ---------------- MECHANICAL ----------------
+        "solidworks": ["solidworks"],
+        "catia": ["catia"],
+        "creo": ["creo"],
+        "ansys": ["ansys"],
+        "mechanical design": ["mechanical design"],
+        "hvac": ["hvac"],
+        "manufacturing": ["manufacturing"],
+        "thermodynamics": ["thermodynamics"],
+
+        # ---------------- ELECTRICAL ----------------
+        "matlab": ["matlab"],
+        "simulink": ["simulink"],
+        "plc": ["plc"],
+        "scada": ["scada"],
+        "circuit design": ["circuit design"],
+        "power systems": [
+            "power systems",
+            "power system",
+        ],
+        "electrical design": ["electrical design"],
+
+        # ---------------- NETWORK SECURITY ----------------
+        "cybersecurity": [
+            "cybersecurity",
+            "cyber security",
+        ],
+        "network security": ["network security"],
+        "penetration testing": [
+            "penetration testing",
+            "pentesting",
+        ],
+        "vulnerability assessment": [
+            "vulnerability assessment"
+        ],
+        "firewall": ["firewall", "firewalls"],
+        "siem": ["siem"],
+        "wireshark": ["wireshark"],
+        "splunk": ["splunk"],
+        "incident response": ["incident response"],
+
+        # ---------------- HR ----------------
+        "recruitment": [
+            "recruitment",
+            "recruiting",
+        ],
+        "talent acquisition": ["talent acquisition"],
+        "onboarding": ["onboarding"],
+        "payroll": ["payroll"],
+        "performance management": [
+            "performance management"
+        ],
+        "employee relations": ["employee relations"],
+        "hr policies": ["hr policies"],
+        "hris": ["hris"],
+        "hrms": ["hrms"],
+
+        # ---------------- SALES ----------------
+        "sales": ["sales"],
+        "business development": [
+            "business development"
+        ],
+        "lead generation": ["lead generation"],
+        "negotiation": ["negotiation"],
+        "account management": ["account management"],
+        "crm": ["crm"],
+        "salesforce": ["salesforce"],
+        "cold calling": ["cold calling"],
+
+        # ---------------- SAP ----------------
+        "sap": ["sap"],
+        "sap hana": ["sap hana", "s/4hana"],
+        "abap": ["abap"],
+        "sap fico": ["sap fico"],
+        "sap mm": ["sap mm"],
+        "sap sd": ["sap sd"],
+        "sap basis": ["sap basis"],
+
+        # ---------------- ARTS / WEB DESIGN ----------------
+        "photoshop": [
+            "photoshop",
+            "adobe photoshop",
+        ],
+        "illustrator": [
+            "illustrator",
+            "adobe illustrator",
+        ],
+        "graphic design": ["graphic design"],
+        "illustration": ["illustration"],
+        "typography": ["typography"],
+        "photography": ["photography"],
+        "video editing": ["video editing"],
+        "figma": ["figma"],
+        "web design": [
+            "web design",
+            "web designing",
+        ],
+        "responsive design": ["responsive design"],
+        "wordpress": ["wordpress"],
+
+        # ---------------- HEALTH / FITNESS ----------------
+        "personal training": ["personal training"],
+        "fitness training": ["fitness training"],
+        "nutrition": ["nutrition"],
+        "strength training": ["strength training"],
+        "exercise physiology": [
+            "exercise physiology"
+        ],
+        "wellness": ["wellness"],
+
+        # ---------------- GENERAL ----------------
+        "excel": [
+            "excel",
+            "microsoft excel",
+            "ms excel",
+        ],
     }
 
+    normalized_text = " " + re.sub(
+        r"\s+",
+        " ",
+        str(text).lower()
+    ) + " "
+
+    found = set()
+
+    for canonical_skill, aliases in skill_groups.items():
+
+        for alias in aliases:
+
+            alias = alias.lower().strip()
+
+            # Symbol-heavy skills.
+            if any(
+                symbol in alias
+                for symbol in ["+", "#", ".", "/"]
+            ):
+                if alias in normalized_text:
+                    found.add(canonical_skill)
+                    break
+
+                continue
+
+            pattern = (
+                r"(?<![a-z0-9])"
+                + re.escape(alias).replace(
+                    r"\ ",
+                    r"\s+"
+                )
+                + r"(?![a-z0-9])"
+            )
+
+            if re.search(pattern, normalized_text):
+                found.add(canonical_skill)
+                break
+
+    return found
 
 def parse_job_skills(value):
     """
@@ -1191,13 +1907,176 @@ def calculate_career_relevance(
         return round(min(score, 75.0), 2)
 
     # ---------------------------------------------------------
+    # ADVOCATE / LEGAL
+    # ---------------------------------------------------------
+
+    if career == "ADVOCATE":
+
+        primary_titles = [
+            "advocate",
+            "attorney",
+            "lawyer",
+            "legal counsel",
+            "legal associate",
+            "associate attorney",
+            "senior associate attorney",
+            "litigation associate",
+            "litigation attorney",
+            "corporate lawyer",
+            "corporate attorney",
+            "corporate counsel",
+            "commercial lawyer",
+            "criminal defense attorney",
+            "criminal defence attorney",
+            "criminal lawyer",
+            "legal advisor",
+            "legal adviser",
+            "legal officer",
+            "legal consultant",
+            "general counsel",
+            "in-house counsel",
+            "ip attorney",
+            "intellectual property attorney",
+            "compliance counsel",
+        ]
+
+        secondary_titles = [
+            "paralegal",
+            "legal specialist",
+            "legal analyst",
+            "contract specialist",
+            "contracts specialist",
+            "document review",
+            "compliance specialist",
+        ]
+
+        legal_description_terms = [
+            "litigation",
+            "legal drafting",
+            "legal research",
+            "corporate law",
+            "commercial law",
+            "criminal law",
+            "criminal defense",
+            "criminal defence",
+            "intellectual property",
+            "contract law",
+            "contract drafting",
+            "court proceedings",
+            "court representation",
+            "legal counsel",
+            "legal advice",
+            "statutory",
+            "arbitration",
+            "legal compliance",
+        ]
+
+        unrelated_title_terms = [
+            "human resource",
+            "human resources",
+            "hr generalist",
+            "recruiter",
+            "recruitment",
+            "business development coordinator",
+            "sales manager",
+            "sales executive",
+            "software engineer",
+            "developer",
+            "data scientist",
+            "data analyst",
+            "machine learning",
+            "civil engineer",
+            "mechanical engineer",
+            "electrical engineer",
+        ]
+
+        # Clearly unrelated role -> reject completely.
+        if any(
+            term in title
+            for term in unrelated_title_terms
+        ):
+            return 0.0
+
+        # Strong legal job title.
+        for keyword in primary_titles:
+            if keyword in title:
+
+                score = 100.0
+
+                # Specialized domain attorney roles remain legal,
+                # but rank below a pure legal/advocate role.
+                specialization_terms = [
+                    "finance",
+                    "financial",
+                    "banking",
+                    "tax",
+                    "real estate",
+                    "insurance",
+                ]
+
+                if any(
+                    term in title
+                    for term in specialization_terms
+                ):
+                    score = 85.0
+
+                return score
+
+        # Supporting legal roles.
+        for keyword in secondary_titles:
+            if keyword in title:
+
+                description_matches = sum(
+                    1
+                    for term in legal_description_terms
+                    if term in description
+                )
+
+                if description_matches >= 2:
+                    return 75.0
+
+                return 55.0
+
+        # Description-based legal relevance.
+        description_matches = sum(
+            1
+            for term in legal_description_terms
+            if term in description
+        )
+
+        if description_matches >= 5:
+            return 70.0
+
+        if description_matches >= 3:
+            return 55.0
+
+        if description_matches >= 2:
+            return 40.0
+
+        # Category support only if category explicitly looks legal.
+        if any(
+            term in category
+            for term in [
+                "LEGAL",
+                "LAW",
+                "ADVOCATE",
+                "ATTORNEY",
+            ]
+        ):
+            return 45.0
+
+        return 0.0
+
+    # ---------------------------------------------------------
     # OTHER CAREERS
     # ---------------------------------------------------------
 
     profile = CAREER_JOB_PROFILES.get(career)
 
     if not profile:
-        return 50.0
+        # Unknown/unconfigured career must not make unrelated
+        # jobs look moderately relevant.
+        return 0.0
 
     title_matches = sum(
         1
@@ -1243,21 +2122,16 @@ def match_jobs(
     top_n=5
 ):
     """
-    Career-aware job recommendation.
+    Resume-aware and career-aware job matching.
 
-    Final score:
+    Matching uses:
+    1. Predicted career
+    2. Job title
+    3. Job description
+    4. Job skill-set column
+    5. Skills extracted from the full job text
 
-        Career relevance = 60%
-        Skill matching   = 40%
-
-    Exact skill match:
-        1.00
-
-    Related skill match:
-        0.50
-
-    Generic skill match:
-        0.25
+    Completely unrelated jobs are rejected.
     """
 
     if not os.path.exists(JOB_DATA_PATH):
@@ -1267,62 +2141,134 @@ def match_jobs(
 
     jobs = pd.read_csv(JOB_DATA_PATH)
 
-    resume_skills = {
-        str(skill).lower().strip()
-        for skill in resume_skills
-    }
+    resume_skills = normalize_skills(
+        {
+            str(skill).lower().strip()
+            for skill in resume_skills
+            if str(skill).strip()
+        }
+    )
 
-    if not resume_skills:
-        return []
+    generic_skills = (
+        GENERIC_SKILLS
+        if "GENERIC_SKILLS" in globals()
+        else set()
+    )
+
+    skill_families = (
+        SKILL_FAMILIES
+        if "SKILL_FAMILIES" in globals()
+        else {}
+    )
 
     results = []
 
     for _, job in jobs.iterrows():
 
-        job_skills = parse_job_skills(
-            job.get("job_skill_set", "")
+        job_title = str(
+            job.get("job_title", "") or ""
         )
 
-        if not job_skills:
+        job_description = str(
+            job.get("job_description", "") or ""
+        )
+
+        job_category = str(
+            job.get("category", "") or ""
+        )
+
+        # ====================================================
+        # 1. CAREER RELEVANCE
+        # ====================================================
+
+        career_score = calculate_career_relevance(
+            predicted_career,
+            job_title,
+            job_description,
+            job_category,
+        )
+
+        # ----------------------------------------------------
+        # CAREER QUALITY GATE
+        # ----------------------------------------------------
+        # Do not force weak jobs into Top N just to fill slots.
+        #
+        # Advocate/legal resumes require strong title/domain
+        # evidence. It is better to return 2-3 strong legal jobs
+        # than 5 jobs containing unrelated/weak recommendations.
+        normalized_career = normalize_career_name(
+            predicted_career
+        )
+
+        if normalized_career == "ADVOCATE":
+            minimum_career_score = 70.0
+        else:
+            minimum_career_score = 40.0
+
+        if career_score < minimum_career_score:
             continue
+
+        # ====================================================
+        # 2. BUILD BETTER JOB SKILL PROFILE
+        # ====================================================
+
+        csv_job_skills = normalize_skills(
+            parse_job_skills(
+                job.get("job_skill_set", "")
+            )
+        )
+
+        # IMPORTANT:
+        # Detect skills from actual title + description as well.
+        contextual_job_skills = normalize_skills(
+            extract_resume_skills(
+                job_title
+                + "\n"
+                + job_description
+            )
+        )
+
+        job_skills = (
+            csv_job_skills
+            | contextual_job_skills
+        )
 
         matched = set()
         missing = set()
 
         weighted_score = 0.0
 
+        # ====================================================
+        # 3. SKILL MATCH
+        # ====================================================
+
         for job_skill in job_skills:
 
-            # Exact match
+            # Exact skill match
             if job_skill in resume_skills:
 
                 matched.add(job_skill)
 
-                # Generic skills should not dominate.
-                if job_skill in GENERIC_SKILLS:
+                if job_skill in generic_skills:
                     weighted_score += 0.25
                 else:
                     weighted_score += 1.0
 
                 continue
 
-            # Related skill match.
+            # Related skill match
             related_resume_skill = None
 
             for resume_skill in resume_skills:
 
-                # Reuse existing SKILL_FAMILIES if your
-                # project already defines it.
-                if "SKILL_FAMILIES" in globals():
+                related = skill_families.get(
+                    resume_skill,
+                    set()
+                )
 
-                    related_skills = SKILL_FAMILIES.get(
-                        resume_skill,
-                        set()
-                    )
-
-                    if job_skill in related_skills:
-                        related_resume_skill = resume_skill
-                        break
+                if job_skill in related:
+                    related_resume_skill = resume_skill
+                    break
 
             if related_resume_skill:
 
@@ -1335,26 +2281,44 @@ def match_jobs(
             else:
                 missing.add(job_skill)
 
-        # Skill score.
         skill_score = (
             weighted_score / len(job_skills) * 100
             if job_skills
             else 0.0
         )
 
-        # Career relevance.
-        career_score = calculate_career_relevance(
-            predicted_career,
-            job.get("job_title", ""),
-            job.get("job_description", ""),
-            job.get("category", ""),
+        # ====================================================
+        # 4. RESUME-SPECIFIC BONUS
+        # ====================================================
+
+        # Reward jobs where several resume skills actually
+        # appear in the job text.
+        job_full_text = (
+            job_title
+            + " "
+            + job_description
+        ).lower()
+
+        resume_evidence = sum(
+            1
+            for skill in resume_skills
+            if skill in job_full_text
         )
 
-        # Career relevance is intentionally stronger
-        # than raw skill overlap.
+        evidence_score = min(
+            resume_evidence * 10.0,
+            100.0
+        )
+
+        # ====================================================
+        # 5. FINAL SCORE
+        # ====================================================
+
+        # Career must remain strongest.
         final_score = (
             career_score * 0.60
-            + skill_score * 0.40
+            + skill_score * 0.25
+            + evidence_score * 0.15
         )
 
         results.append({
@@ -1362,6 +2326,9 @@ def match_jobs(
             "category": job.get("category"),
             "job_title": job.get("job_title"),
             "match_score": round(final_score, 2),
+            "career_score": round(career_score, 2),
+            "skill_score": round(skill_score, 2),
+            "evidence_score": round(evidence_score, 2),
             "matched_skills": sorted(matched),
             "missing_skills": sorted(missing),
         })
@@ -1369,7 +2336,9 @@ def match_jobs(
     results.sort(
         key=lambda item: (
             item["match_score"],
-            len(item["matched_skills"])
+            item["career_score"],
+            item["evidence_score"],
+            len(item["matched_skills"]),
         ),
         reverse=True
     )
